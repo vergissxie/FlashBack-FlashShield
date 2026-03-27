@@ -1,9 +1,10 @@
 const path = require("path");
 const hre = require("hardhat");
-const { loadEnvFile, requireEnv } = require("./utils");
+const { loadEnvFile, requireEnv, saveDeployment } = require("./utils");
 
 async function main() {
-  loadEnvFile(path.resolve(__dirname, "../.."));
+  const projectRoot = path.resolve(__dirname, "../..");
+  loadEnvFile(projectRoot);
 
   const originChainId = BigInt(requireEnv("ORIGIN_CHAIN_ID"));
   const destinationChainId = BigInt(requireEnv("DESTINATION_CHAIN_ID"));
@@ -21,11 +22,30 @@ async function main() {
   );
   await contract.waitForDeployment();
 
-  console.log("ReactiveProtection deployed:", await contract.getAddress());
+  const address = await contract.getAddress();
+  const txHash = contract.deploymentTransaction()?.hash || "";
+
+  const outputPath = saveDeployment(projectRoot, {
+    contractName: "ReactiveProtection",
+    network: hre.network.name,
+    chainId: Number((await hre.ethers.provider.getNetwork()).chainId),
+    address,
+    deploymentTxHash: txHash,
+    constructorArgs: [
+      originChainId.toString(),
+      destinationChainId.toString(),
+      originContract,
+      nearLiquidationTopic,
+      destinationExecutor
+    ]
+  });
+
+  console.log("ReactiveProtection deployed:", address);
+  console.log("Deployment tx hash:", txHash);
+  console.log("Saved deployment file:", outputPath);
 }
 
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

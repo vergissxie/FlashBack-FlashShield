@@ -32,8 +32,21 @@ function requireEnv(name) {
   return value;
 }
 
+function saveDeployment(projectRoot, deployment) {
+  const deploymentsDir = path.join(projectRoot, "contracts", "deployments");
+  fs.mkdirSync(deploymentsDir, { recursive: true });
+
+  const filePath = path.join(
+    deploymentsDir,
+    `${deployment.network}-${deployment.contractName}.json`
+  );
+
+  fs.writeFileSync(filePath, JSON.stringify(deployment, null, 2));
+  return filePath;
+}
+
 module.exports = {
   loadEnvFile,
   requireEnv,
+  saveDeployment,
 };
-
