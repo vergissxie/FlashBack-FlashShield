@@ -10,7 +10,7 @@ async function main() {
   const destinationChainId = BigInt(requireEnv("DESTINATION_CHAIN_ID"));
   const originContract = requireEnv("POSITION_RISK_SIMULATOR_ADDRESS");
   const destinationExecutor = requireEnv("PROTECTION_EXECUTOR_ADDRESS");
-  const nearLiquidationTopic = hre.ethers.id("NearLiquidation(bytes32,uint256)");
+  const nearLiquidationTopic = hre.ethers.id("NearLiquidation(bytes32,uint256,uint256,uint256)");
   const deployValueEth = process.env.REACTIVE_PROTECTION_DEPLOY_VALUE_ETH || "0.1";
 
   const factory = await hre.ethers.getContractFactory("ReactiveProtection");

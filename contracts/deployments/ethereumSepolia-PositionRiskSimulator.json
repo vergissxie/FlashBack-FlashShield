@@ -2,7 +2,7 @@
   "contractName": "PositionRiskSimulator",
   "network": "ethereumSepolia",
   "chainId": 11155111,
-  "address": "0x420dA053ECAC3FA636c5250A5735156bE51F2119",
-  "deploymentTxHash": "0xcca077212ddc77bd4efddea77a4776c0f110d24f4ee28538bc5e81136b67c3f9",
+  "address": "0xc61465d293a4F7EaA11535bB805AF6447b932298",
+  "deploymentTxHash": "0x055d53479cb555e5e56c305e96abf97978b2fe33ccc86f2b94171aead9079717",
   "constructorArgs": []
 }

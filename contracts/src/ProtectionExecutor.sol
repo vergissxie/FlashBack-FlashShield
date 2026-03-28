@@ -7,72 +7,79 @@ interface IProtectionExecutorCallback {
         address rvmId,
         bytes32 strategyId,
         uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice,
         uint8 action
     ) external;
 
-    function executeProtection(bytes32 strategyId, uint256 triggerPrice) external;
+    function executeProtection(
+        bytes32 strategyId,
+        uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice
+    ) external;
 }
 
-/// @notice One-way B-chain executor for the FlashShield P0 demo.
-/// @dev The contract intentionally keeps recovery unimplemented so it can be added later.
+/// @notice B-chain hedging executor for the FlashShield P0+ demo.
+/// @dev It stores a mock short position instead of performing a real perps trade.
 contract ProtectionExecutor {
-    uint256 public constant BPS_DENOMINATOR = 10_000;
-    uint256 public constant PROTECTION_BPS = 8_000;
     uint8 public constant ACTION_PROTECT = 1;
 
-    enum ProtectionStatus {
+    enum HedgeDirection {
+        None,
+        Short
+    }
+
+    enum HedgeStatus {
         Idle,
-        Protected,
+        ShortOpened,
         RecoveryPending,
         Recovered
     }
 
     address public immutable authorizedCallbackProxy;
     address public immutable expectedRvmId;
-    uint256 public immutable initialRiskTokenBalance;
-    uint256 public immutable initialStableTokenBalance;
+    uint256 public immutable contractMultiplier;
     mapping(address => bool) private _authorizedSenders;
 
-    uint256 public riskTokenBalance;
-    uint256 public stableTokenBalance;
-    uint256 public protectedAmount;
-    bytes32 public lastStrategyId;
+    uint256 public lastHedgeSize;
+    uint256 public lastCollateralValue;
     uint256 public lastTriggerPrice;
+    uint256 public lastTargetPrice;
     uint8 public lastAction;
-    ProtectionStatus public status;
+    bytes32 public lastStrategyId;
+    HedgeDirection public lastDirection;
+    HedgeStatus public status;
 
     event CallbackValidated(address indexed callbackProxy, address indexed rvmId, bytes32 indexed strategyId);
-    event ProtectionStateReset(bytes32 indexed previousStrategyId);
-    event ProtectionExecuted(
+    event HedgeStateReset(bytes32 indexed previousStrategyId);
+    event ShortPositionOpened(
         bytes32 indexed strategyId,
         uint256 triggerPrice,
-        uint256 protectedAmount,
-        uint256 remainingRiskBalance,
-        uint256 stableBalance
+        uint256 targetPrice,
+        uint256 collateralValue,
+        uint256 contractMultiplier,
+        uint256 hedgeSize
     );
 
     error InvalidCallbackSource(address sender);
     error InvalidRvmId(address expected, address actual);
     error InvalidAction(uint8 action);
-    error AlreadyProtected();
-    error NoRiskBalance();
+    error AlreadyHedged();
+    error InvalidCollateralValue();
+    error InvalidTargetPrice();
+    error InvalidHedgeFormula();
 
-    constructor(
-        address _authorizedCallbackProxy,
-        address _expectedRvmId,
-        uint256 _initialRiskBalance,
-        uint256 _initialStableBalance
-    ) payable {
+    constructor(address _authorizedCallbackProxy, address _expectedRvmId, uint256 _contractMultiplier) payable {
         require(_authorizedCallbackProxy != address(0), "Proxy required");
         require(_expectedRvmId != address(0), "RVM required");
+        require(_contractMultiplier != 0, "Multiplier required");
 
         authorizedCallbackProxy = _authorizedCallbackProxy;
         expectedRvmId = _expectedRvmId;
-        initialRiskTokenBalance = _initialRiskBalance;
-        initialStableTokenBalance = _initialStableBalance;
-        riskTokenBalance = _initialRiskBalance;
-        stableTokenBalance = _initialStableBalance;
-        status = ProtectionStatus.Idle;
+        contractMultiplier = _contractMultiplier;
+        status = HedgeStatus.Idle;
+        lastDirection = HedgeDirection.None;
         _authorizedSenders[_authorizedCallbackProxy] = true;
     }
 
@@ -94,6 +101,8 @@ contract ProtectionExecutor {
         address rvmId,
         bytes32 strategyId,
         uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice,
         uint8 action
     ) external {
         if (msg.sender != authorizedCallbackProxy) {
@@ -107,85 +116,108 @@ contract ProtectionExecutor {
         }
 
         emit CallbackValidated(msg.sender, rvmId, strategyId);
-        _executeProtection(strategyId, triggerPrice, action);
+        _executeProtection(strategyId, triggerPrice, collateralValue, targetPrice, action);
     }
 
     /// @notice Direct one-way protection path reserved for the approved callback proxy.
-    function executeProtection(bytes32 strategyId, uint256 triggerPrice) external {
+    function executeProtection(
+        bytes32 strategyId,
+        uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice
+    ) external {
         if (msg.sender != authorizedCallbackProxy) {
             revert InvalidCallbackSource(msg.sender);
         }
 
-        _executeProtection(strategyId, triggerPrice, ACTION_PROTECT);
+        _executeProtection(strategyId, triggerPrice, collateralValue, targetPrice, ACTION_PROTECT);
     }
 
-    /// @notice Returns the current demo balances and status.
+    /// @notice Returns the current mock short state.
     function getProtectionState()
         external
         view
         returns (
-            uint256 riskBalance,
-            uint256 stableBalance,
-            uint256 amountProtected,
-            ProtectionStatus currentStatus,
-            bytes32 strategyId,
+            uint256 hedgeSize,
+            uint256 collateralValue,
             uint256 triggerPrice,
+            uint256 targetPrice,
+            uint256 multiplier,
+            HedgeStatus currentStatus,
+            bytes32 strategyId,
+            HedgeDirection direction,
             uint8 action
         )
     {
         return (
-            riskTokenBalance,
-            stableTokenBalance,
-            protectedAmount,
+            lastHedgeSize,
+            lastCollateralValue,
+            lastTriggerPrice,
+            lastTargetPrice,
+            contractMultiplier,
             status,
             lastStrategyId,
-            lastTriggerPrice,
+            lastDirection,
             lastAction
         );
     }
 
-    function _executeProtection(bytes32 strategyId, uint256 triggerPrice, uint8 action) internal {
-        if (status == ProtectionStatus.Protected) {
+    function _executeProtection(
+        bytes32 strategyId,
+        uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice,
+        uint8 action
+    ) internal {
+        if (status == HedgeStatus.ShortOpened) {
             if (lastStrategyId == strategyId) {
-                revert AlreadyProtected();
+                revert AlreadyHedged();
             }
 
-            emit ProtectionStateReset(lastStrategyId);
-            _resetToInitialBalances();
+            emit HedgeStateReset(lastStrategyId);
+            _resetState();
         }
-        if (riskTokenBalance == 0) {
-            revert NoRiskBalance();
+        if (collateralValue == 0) {
+            revert InvalidCollateralValue();
         }
-
-        uint256 amountToProtect = (riskTokenBalance * PROTECTION_BPS) / BPS_DENOMINATOR;
-        if (amountToProtect == 0) {
-            revert NoRiskBalance();
+        if (targetPrice == 0 || targetPrice >= triggerPrice) {
+            revert InvalidTargetPrice();
         }
 
-        protectedAmount = amountToProtect;
-        riskTokenBalance -= amountToProtect;
-        stableTokenBalance += amountToProtect;
+        uint256 priceGap = triggerPrice - targetPrice;
+        uint256 hedgeSize = (collateralValue * priceGap) / contractMultiplier;
+        if (hedgeSize == 0) {
+            revert InvalidHedgeFormula();
+        }
+
         lastStrategyId = strategyId;
         lastTriggerPrice = triggerPrice;
+        lastCollateralValue = collateralValue;
+        lastTargetPrice = targetPrice;
+        lastHedgeSize = hedgeSize;
+        lastDirection = HedgeDirection.Short;
         lastAction = action;
-        status = ProtectionStatus.Protected;
+        status = HedgeStatus.ShortOpened;
 
-        emit ProtectionExecuted(
+        emit ShortPositionOpened(
             strategyId,
             triggerPrice,
-            amountToProtect,
-            riskTokenBalance,
-            stableTokenBalance
+            targetPrice,
+            collateralValue,
+            contractMultiplier,
+            hedgeSize
         );
     }
 
-    function _resetToInitialBalances() internal {
-        riskTokenBalance = initialRiskTokenBalance;
-        stableTokenBalance = initialStableTokenBalance;
-        protectedAmount = 0;
-        lastAction = 0;
+    function _resetState() internal {
+        lastHedgeSize = 0;
+        lastCollateralValue = 0;
         lastTriggerPrice = 0;
-        status = ProtectionStatus.Idle;
+        lastTargetPrice = 0;
+        lastAction = 0;
+        lastStrategyId = bytes32(0);
+        lastDirection = HedgeDirection.None;
+        status = HedgeStatus.Idle;
     }
 }
 
@@ -196,16 +228,27 @@ contract ProtectionCallbackProxyMock {
         address rvmId,
         bytes32 strategyId,
         uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice,
         uint8 action
     ) external {
-        IProtectionExecutorCallback(target).onReactiveCallback(rvmId, strategyId, triggerPrice, action);
+        IProtectionExecutorCallback(target).onReactiveCallback(
+            rvmId,
+            strategyId,
+            triggerPrice,
+            collateralValue,
+            targetPrice,
+            action
+        );
     }
 
     function forwardExecuteProtection(
         address target,
         bytes32 strategyId,
-        uint256 triggerPrice
+        uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice
     ) external {
-        IProtectionExecutorCallback(target).executeProtection(strategyId, triggerPrice);
+        IProtectionExecutorCallback(target).executeProtection(strategyId, triggerPrice, collateralValue, targetPrice);
     }
 }

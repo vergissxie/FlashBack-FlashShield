@@ -13,22 +13,20 @@ describe("ProtectionExecutor", function () {
     const executor = await ExecutorFactory.deploy(
       await proxy.getAddress(),
       deployer.address,
-      1000n,
-      0n
+      100n
     );
     await executor.waitForDeployment();
 
     return { deployer, proxy, executor };
   }
 
-  it("initializes the demo balances and callback metadata", async function () {
+  it("initializes callback metadata and hedge config", async function () {
     const { deployer, proxy, executor } = await deployFixture();
 
     expect(await executor.authorizedCallbackProxy()).to.equal(await proxy.getAddress());
     expect(await executor.expectedRvmId()).to.equal(deployer.address);
-    expect(await executor.riskTokenBalance()).to.equal(1000n);
-    expect(await executor.stableTokenBalance()).to.equal(0n);
-    expect(await executor.protectedAmount()).to.equal(0n);
+    expect(await executor.contractMultiplier()).to.equal(100n);
+    expect(await executor.lastHedgeSize()).to.equal(0n);
     expect(await executor.status()).to.equal(0n);
   });
 
@@ -36,7 +34,14 @@ describe("ProtectionExecutor", function () {
     const { deployer, executor } = await deployFixture();
 
     await expect(
-      executor.onReactiveCallback(deployer.address, ethers.encodeBytes32String("demo"), 84n, 1)
+      executor.onReactiveCallback(
+        deployer.address,
+        ethers.encodeBytes32String("demo"),
+        90n,
+        1_000n,
+        80n,
+        1
+      )
     )
       .to.be.revertedWithCustomError(executor, "InvalidCallbackSource")
       .withArgs(deployer.address);
@@ -51,7 +56,9 @@ describe("ProtectionExecutor", function () {
         await executor.getAddress(),
         wrongRvmId,
         ethers.encodeBytes32String("demo"),
-        84n,
+        90n,
+        1_000n,
+        80n,
         1
       )
     )
@@ -59,59 +66,99 @@ describe("ProtectionExecutor", function () {
       .withArgs(await executor.expectedRvmId(), wrongRvmId);
   });
 
-  it("applies an 80% one-way protection switch on a valid callback", async function () {
+  it("opens a mock short with a dynamically calculated hedge size", async function () {
     const { proxy, executor } = await deployFixture();
     const strategyId = ethers.encodeBytes32String("strategy-1");
-    const triggerPrice = 84n;
 
     await expect(
-      proxy.forwardReactiveCallback(await executor.getAddress(), await executor.expectedRvmId(), strategyId, triggerPrice, 1)
+      proxy.forwardReactiveCallback(
+        await executor.getAddress(),
+        await executor.expectedRvmId(),
+        strategyId,
+        90n,
+        1_000n,
+        80n,
+        1
+      )
     )
-      .to.emit(executor, "ProtectionExecuted")
-      .withArgs(strategyId, triggerPrice, 800n, 200n, 800n);
+      .to.emit(executor, "ShortPositionOpened")
+      .withArgs(strategyId, 90n, 80n, 1_000n, 100n, 100n);
 
     const state = await executor.getProtectionState();
-    expect(state.riskBalance).to.equal(200n);
-    expect(state.stableBalance).to.equal(800n);
-    expect(state.amountProtected).to.equal(800n);
+    expect(state.hedgeSize).to.equal(100n);
+    expect(state.collateralValue).to.equal(1_000n);
+    expect(state.triggerPrice).to.equal(90n);
+    expect(state.targetPrice).to.equal(80n);
+    expect(state.multiplier).to.equal(100n);
     expect(state.currentStatus).to.equal(1n);
     expect(state.strategyId).to.equal(strategyId);
-    expect(state.triggerPrice).to.equal(84n);
+    expect(state.direction).to.equal(1n);
     expect(state.action).to.equal(1n);
   });
 
-  it("blocks repeated protection once the position is already protected", async function () {
+  it("blocks repeated hedging for the same strategy", async function () {
     const { proxy, executor } = await deployFixture();
     const target = await executor.getAddress();
     const rvmId = await executor.expectedRvmId();
 
-    await proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 84n, 1);
+    await proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 90n, 1_000n, 80n, 1);
 
     await expect(
-      proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 83n, 1)
+      proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 88n, 1_000n, 78n, 1)
     )
-      .to.be.revertedWithCustomError(executor, "AlreadyProtected");
+      .to.be.revertedWithCustomError(executor, "AlreadyHedged");
   });
 
-  it("resets demo balances when a new strategy triggers after an earlier protected run", async function () {
+  it("resets mock short state when a new strategy triggers later", async function () {
     const { proxy, executor } = await deployFixture();
     const target = await executor.getAddress();
     const rvmId = await executor.expectedRvmId();
 
-    await proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 84n, 1);
+    await proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 90n, 1_000n, 80n, 1);
 
     await expect(
-      proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-2"), 82n, 1)
+      proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-2"), 84n, 2_000n, 74n, 1)
     )
-      .to.emit(executor, "ProtectionStateReset")
+      .to.emit(executor, "HedgeStateReset")
       .withArgs(ethers.encodeBytes32String("strategy-1"));
 
     const state = await executor.getProtectionState();
-    expect(state.riskBalance).to.equal(200n);
-    expect(state.stableBalance).to.equal(800n);
-    expect(state.amountProtected).to.equal(800n);
-    expect(state.currentStatus).to.equal(1n);
+    expect(state.hedgeSize).to.equal(200n);
+    expect(state.collateralValue).to.equal(2_000n);
+    expect(state.triggerPrice).to.equal(84n);
+    expect(state.targetPrice).to.equal(74n);
     expect(state.strategyId).to.equal(ethers.encodeBytes32String("strategy-2"));
-    expect(state.triggerPrice).to.equal(82n);
+  });
+
+  it("reverts when target price does not imply further downside", async function () {
+    const { proxy, executor } = await deployFixture();
+
+    await expect(
+      proxy.forwardReactiveCallback(
+        await executor.getAddress(),
+        await executor.expectedRvmId(),
+        ethers.encodeBytes32String("strategy-1"),
+        90n,
+        1_000n,
+        90n,
+        1
+      )
+    ).to.be.revertedWithCustomError(executor, "InvalidTargetPrice");
+  });
+
+  it("reverts when the formula resolves to zero hedge size", async function () {
+    const { proxy, executor } = await deployFixture();
+
+    await expect(
+      proxy.forwardReactiveCallback(
+        await executor.getAddress(),
+        await executor.expectedRvmId(),
+        ethers.encodeBytes32String("strategy-1"),
+        90n,
+        1n,
+        89n,
+        1
+      )
+    ).to.be.revertedWithCustomError(executor, "InvalidHedgeFormula");
   });
 });

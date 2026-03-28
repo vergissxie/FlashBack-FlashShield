@@ -45,7 +45,8 @@ contract ReactiveProtection is ReactiveBase {
         require(bytes32(log.topic_0) == nearLiquidationTopic, "Invalid topic");
 
         bytes32 strategyId = bytes32(log.topic_1);
-        uint256 triggerPrice = abi.decode(log.data, (uint256));
+        (uint256 triggerPrice, uint256 collateralValue, uint256 targetPrice) =
+            abi.decode(log.data, (uint256, uint256, uint256));
 
         emit Callback(
             destinationChainId,
@@ -56,6 +57,8 @@ contract ReactiveProtection is ReactiveBase {
                 address(0),
                 strategyId,
                 triggerPrice,
+                collateralValue,
+                targetPrice,
                 ACTION_PROTECT
             )
         );

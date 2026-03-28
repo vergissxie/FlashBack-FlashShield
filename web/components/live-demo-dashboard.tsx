@@ -10,6 +10,8 @@ type PositionState = {
   entryPrice: string;
   markPrice: string;
   liquidationThreshold: string;
+  collateralValue: string;
+  targetPrice: string;
   status: number;
   stage: "Safe" | "Watch" | "NearLiquidation" | "Triggered";
   note: string;
@@ -23,12 +25,14 @@ type DemoState = {
   position: PositionState;
   protection: {
     appliesToRequestedStrategy: boolean;
-    riskBalance: string;
-    stableBalance: string;
-    amountProtected: string;
+    hedgeSize: string;
+    collateralValue: string;
+    triggerPrice: string;
+    targetPrice: string;
+    contractMultiplier: string;
     currentStatus: number;
     strategyId: string;
-    triggerPrice: string;
+    direction: number;
     action: number;
   };
   callback: {
@@ -98,7 +102,7 @@ function protectionStatusLabel(state: DemoState | null) {
     return "未触发";
   }
   if (state.protection.currentStatus === 1) {
-    return "已保护";
+    return "已对冲";
   }
   if (state.protection.currentStatus === 2) {
     return "等待恢复";
@@ -107,6 +111,13 @@ function protectionStatusLabel(state: DemoState | null) {
     return "已恢复";
   }
   return "空闲";
+}
+
+function hedgeDirectionLabel(direction: number) {
+  if (direction === 1) {
+    return "SHORT";
+  }
+  return "未建立";
 }
 
 function parseNumberInput(value: string) {
@@ -118,7 +129,7 @@ function friendlyErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
 
   if (message.includes("InvalidThreshold")) {
-    return "开仓失败：清算阈值必须大于 0，且必须小于开仓价格。";
+    return "开仓失败：清算阈值必须小于开仓价格，targetPrice 还必须低于清算阈值。";
   }
   if (message.includes("PositionAlreadyExists")) {
     return "开仓失败：这个策略 ID 已经存在，请换一个新的策略 ID。";
@@ -151,6 +162,8 @@ export function LiveDemoDashboard() {
   const [entryPrice, setEntryPrice] = useState("100");
   const [liquidationThreshold, setLiquidationThreshold] = useState("85");
   const [markPrice, setMarkPrice] = useState("88");
+  const [collateralValue, setCollateralValue] = useState("1000");
+  const [targetPrice, setTargetPrice] = useState("80");
   const [displayMarkPrice, setDisplayMarkPrice] = useState("100");
   const [demoState, setDemoState] = useState<DemoState | null>(null);
   const [feedback, setFeedback] = useState("先连接钱包，然后点击“1. 开启演示仓位”。");
@@ -162,17 +175,25 @@ export function LiveDemoDashboard() {
   const entryPriceValue = parseNumberInput(entryPrice);
   const liquidationThresholdValue = parseNumberInput(liquidationThreshold);
   const markPriceValue = parseNumberInput(markPrice);
+  const collateralValueInput = parseNumberInput(collateralValue);
+  const targetPriceValue = parseNumberInput(targetPrice);
   const openInputInvalid =
     !strategyId.trim() ||
     !Number.isFinite(entryPriceValue) ||
     !Number.isFinite(liquidationThresholdValue) ||
+    !Number.isFinite(collateralValueInput) ||
+    !Number.isFinite(targetPriceValue) ||
     entryPriceValue <= 0 ||
     liquidationThresholdValue <= 0 ||
-    liquidationThresholdValue >= entryPriceValue;
+    collateralValueInput <= 0 ||
+    targetPriceValue <= 0 ||
+    liquidationThresholdValue >= entryPriceValue ||
+    targetPriceValue >= liquidationThresholdValue;
   const triggerInputInvalid =
     !demoState?.position ||
     !Number.isFinite(markPriceValue) ||
-    markPriceValue <= 0;
+    markPriceValue <= 0 ||
+    (Number.isFinite(targetPriceValue) && markPriceValue <= targetPriceValue);
 
   useEffect(() => {
     void hydrateWallet();
@@ -226,7 +247,7 @@ export function LiveDemoDashboard() {
       setDemoState(nextState);
 
       if (nextState.protection.appliesToRequestedStrategy) {
-        setFeedback(`Reactive 回调已完成，${targetStrategyId} 已在 B 链执行保护。`);
+        setFeedback(`Reactive 回调已完成，${targetStrategyId} 已在 B 链建立 mock short 对冲仓位。`);
         return;
       }
 
@@ -373,7 +394,7 @@ export function LiveDemoDashboard() {
 
   async function openDemoPosition() {
     if (openInputInvalid) {
-      setFeedback("开仓前请检查参数：清算阈值必须小于开仓价格，且两者都要大于 0。");
+      setFeedback("开仓前请检查参数：清算阈值必须小于开仓价格，collateralValue 要大于 0，targetPrice 必须低于清算阈值。");
       return;
     }
 
@@ -384,7 +405,9 @@ export function LiveDemoDashboard() {
         const tx = await contract.openPosition(
           strategyIdBytes,
           BigInt(entryPrice),
-          BigInt(liquidationThreshold)
+          BigInt(liquidationThreshold),
+          BigInt(collateralValue),
+          BigInt(targetPrice)
         );
         return tx.wait();
       });
@@ -401,7 +424,7 @@ export function LiveDemoDashboard() {
 
   async function triggerNearLiquidation() {
     if (triggerInputInvalid) {
-      setFeedback("请先开仓，再输入一个有效的目标触发价。");
+      setFeedback("请先开仓，再输入一个高于对冲目标价的有效触发价。");
       return;
     }
 
@@ -429,9 +452,10 @@ export function LiveDemoDashboard() {
   }
 
   const appliesToCurrentStrategy = demoState?.protection.appliesToRequestedStrategy ?? false;
-  const protectedRiskBalance = appliesToCurrentStrategy ? `${demoState?.protection.riskBalance}%` : "未触发";
-  const protectedStableBalance = appliesToCurrentStrategy ? `${demoState?.protection.stableBalance}%` : "未触发";
-  const protectedAmount = appliesToCurrentStrategy ? `${demoState?.protection.amountProtected}%` : "未触发";
+  const hedgeSizeDisplay = appliesToCurrentStrategy ? demoState?.protection.hedgeSize : "未触发";
+  const hedgeTargetDisplay = appliesToCurrentStrategy ? `$${demoState?.protection.targetPrice}` : "未触发";
+  const hedgeTriggerDisplay = appliesToCurrentStrategy ? `$${demoState?.protection.triggerPrice}` : "未触发";
+  const hedgeDirectionDisplay = appliesToCurrentStrategy ? hedgeDirectionLabel(demoState?.protection.direction ?? 0) : "未触发";
 
   return (
     <main className="shell">
@@ -540,6 +564,14 @@ export function LiveDemoDashboard() {
             <span>目标触发价</span>
             <input value={markPrice} onChange={(event) => setMarkPrice(event.target.value)} />
           </label>
+          <label className="field">
+            <span>A 链抵押价值</span>
+            <input value={collateralValue} onChange={(event) => setCollateralValue(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>B 链对冲目标价</span>
+            <input value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} />
+          </label>
         </div>
 
         <div className="action-row">
@@ -613,6 +645,14 @@ export function LiveDemoDashboard() {
                   <dd>{`$${demoState.position.liquidationThreshold}`}</dd>
                 </div>
                 <div className="detail-card">
+                  <dt>抵押价值</dt>
+                  <dd>{`$${demoState.position.collateralValue}`}</dd>
+                </div>
+                <div className="detail-card">
+                  <dt>对冲目标价</dt>
+                  <dd>{`$${demoState.position.targetPrice}`}</dd>
+                </div>
+                <div className="detail-card">
                   <dt>策略 bytes32</dt>
                   <dd>{shortAddress(strategyIdBytes)}</dd>
                 </div>
@@ -665,6 +705,14 @@ export function LiveDemoDashboard() {
                     {appliesToCurrentStrategy ? `$${demoState.protection.triggerPrice}` : "当前策略尚未触发"}
                   </dd>
                 </div>
+                <div>
+                  <dt>对冲方向</dt>
+                  <dd>{appliesToCurrentStrategy ? hedgeDirectionLabel(demoState.protection.direction) : "当前策略尚未触发"}</dd>
+                </div>
+                <div>
+                  <dt>对冲规模</dt>
+                  <dd>{appliesToCurrentStrategy ? demoState.protection.hedgeSize : "当前策略尚未触发"}</dd>
+                </div>
               </dl>
 
               <div className="flow">
@@ -697,22 +745,22 @@ export function LiveDemoDashboard() {
             <div className="result-panel__head">
               <div>
                 <p className="eyebrow">未保护基准</p>
-                <h3>100% 风险侧暴露</h3>
+                <h3>A 链风险继续裸露</h3>
               </div>
               <span className="accent-dot accent-dot-amber" />
             </div>
             <dl className="result-metrics">
               <div>
-                <dt>风险资产</dt>
-                <dd>100%</dd>
+                <dt>对冲方向</dt>
+                <dd>无</dd>
               </div>
               <div>
-                <dt>稳定资产</dt>
-                <dd>0%</dd>
+                <dt>对冲规模</dt>
+                <dd>0</dd>
               </div>
               <div>
                 <dt>说明</dt>
-                <dd>没有执行自动保护。</dd>
+                <dd>没有建立反向仓位，A 链风险完全裸露。</dd>
               </div>
             </dl>
             <div className="result-panel__rail">
@@ -730,20 +778,24 @@ export function LiveDemoDashboard() {
             </div>
             <dl className="result-metrics">
               <div>
-                <dt>风险资产</dt>
-                <dd>{protectedRiskBalance}</dd>
+                <dt>对冲方向</dt>
+                <dd>{hedgeDirectionDisplay}</dd>
               </div>
               <div>
-                <dt>稳定资产</dt>
-                <dd>{protectedStableBalance}</dd>
+                <dt>对冲规模</dt>
+                <dd>{hedgeSizeDisplay}</dd>
               </div>
               <div>
-                <dt>已保护比例</dt>
-                <dd>{protectedAmount}</dd>
+                <dt>触发价</dt>
+                <dd>{hedgeTriggerDisplay}</dd>
+              </div>
+              <div>
+                <dt>目标价</dt>
+                <dd>{hedgeTargetDisplay}</dd>
               </div>
             </dl>
             <p className="result-note">
-              当前 P0 版本的 B 链策略参数固定为 80%。这里展示的是链上实际返回值，不是前端临时伪造数据。
+              当前增强版不再固定展示 80% 切仓，而是根据链上保存的抵押价值、触发价、目标价和合约乘数计算 mock short 规模。
             </p>
             <div className="result-panel__rail">
               <span className="result-panel__fill result-panel__fill-emerald" />

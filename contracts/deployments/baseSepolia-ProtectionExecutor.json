@@ -2,13 +2,12 @@
   "contractName": "ProtectionExecutor",
   "network": "baseSepolia",
   "chainId": 84532,
-  "address": "0x980CFa7e8d3774DD2474d58b19733Cbf25C08663",
-  "deploymentTxHash": "0xf8c0dda3a3353e7e3352c536288f87a877e7d5c1d00fd006be35ff4817f4fee6",
+  "address": "0xE5181de9751b82C86ce1f5D5bd2F7B183e8cBd37",
+  "deploymentTxHash": "0x90f101a686b5bee5b27af62adeaeb3ab570005b6e5436db6cee76de8e4cd85d7",
   "constructorArgs": [
     "0xa6eA49Ed671B8a4dfCDd34E36b7a75Ac79B8A5a6",
     "0x413716245425E7f9Ce59771Ba048F1f3DD675dd6",
     "100",
-    "0",
     "0.02"
   ]
 }

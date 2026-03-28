@@ -12,6 +12,8 @@ async function main() {
   const liquidationThreshold = BigInt(
     process.env.LIQUIDATION_THRESHOLD || "85"
   );
+  const collateralValue = BigInt(process.env.COLLATERAL_VALUE || "1000");
+  const targetPrice = BigInt(process.env.TARGET_PRICE || "80");
 
   const simulator = await hre.ethers.getContractAt(
     "PositionRiskSimulator",
@@ -22,7 +24,9 @@ async function main() {
   const tx = await simulator.openPosition(
     strategyId,
     entryPrice,
-    liquidationThreshold
+    liquidationThreshold,
+    collateralValue,
+    targetPrice
   );
   const receipt = await tx.wait();
 
@@ -36,6 +40,8 @@ async function main() {
         strategyId,
         entryPrice: entryPrice.toString(),
         liquidationThreshold: liquidationThreshold.toString(),
+        collateralValue: collateralValue.toString(),
+        targetPrice: targetPrice.toString(),
         txHash: receipt.hash,
       },
       null,

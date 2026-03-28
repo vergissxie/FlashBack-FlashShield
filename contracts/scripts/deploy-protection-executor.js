@@ -8,16 +8,14 @@ async function main() {
 
   const callbackProxy = requireEnv("REACTIVE_CALLBACK_PROXY");
   const expectedRvmId = requireEnv("EXPECTED_RVM_ID");
-  const initialRiskBalance = BigInt(process.env.INITIAL_RISK_BALANCE || "100");
-  const initialStableBalance = BigInt(process.env.INITIAL_STABLE_BALANCE || "0");
+  const contractMultiplier = BigInt(process.env.CONTRACT_MULTIPLIER_B || "100");
   const deployValueEth = process.env.PROTECTION_EXECUTOR_DEPLOY_VALUE_ETH || "0.02";
 
   const factory = await hre.ethers.getContractFactory("ProtectionExecutor");
   const contract = await factory.deploy(
     callbackProxy,
     expectedRvmId,
-    initialRiskBalance,
-    initialStableBalance,
+    contractMultiplier,
     {
       value: hre.ethers.parseEther(deployValueEth),
     }
@@ -36,8 +34,7 @@ async function main() {
     constructorArgs: [
       callbackProxy,
       expectedRvmId,
-      initialRiskBalance.toString(),
-      initialStableBalance.toString(),
+      contractMultiplier.toString(),
       deployValueEth
     ]
   });

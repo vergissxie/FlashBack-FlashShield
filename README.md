@@ -6,17 +6,18 @@ FlashShield 是一个基于 Reactive Network 的黑客松 Demo，用来展示“
 
 - A 链风控模拟合约会在接近清算时发出 `NearLiquidation`
 - Reactive 合约真实监听 origin 事件，并向 destination 发出 callback
-- B 链执行合约会把风险暴露从 `100 / 0` 切换为 `20 / 80`
-- 前端页面可以连接钱包、发起 A 链动作、读取真实链上状态，并展示保护结果
+- B 链执行合约会根据 `collateralValue / triggerPrice / targetPrice / contractMultiplier` 计算 `hedgeSize`
+- B 链执行结果以 `mock short` 语义落链，而不是固定 `20 / 80` 切仓
+- 前端页面可以连接钱包、发起 A 链动作、读取真实链上状态，并展示对冲结果
 
 ## 当前有效部署
 
 - `PositionRiskSimulator` / Ethereum Sepolia
-  - `0x420dA053ECAC3FA636c5250A5735156bE51F2119`
+  - `0xc61465d293a4F7EaA11535bB805AF6447b932298`
 - `ProtectionExecutor` / Base Sepolia
-  - `0x980CFa7e8d3774DD2474d58b19733Cbf25C08663`
+  - `0xE5181de9751b82C86ce1f5D5bd2F7B183e8cBd37`
 - `ReactiveProtection` / Reactive Lasna
-  - `0x808783123980c7315f1d370410A2664beEa6867E`
+  - `0x2Fb3e3f539B06940Fb37d5258dD409d36B959Bb9`
 
 更完整的地址、交易哈希和验证记录见：
 
@@ -72,6 +73,6 @@ cp .env.example .env
 当前仓库已经达到“可提交黑客松 Demo”的状态。  
 后续如果还有时间，可以继续增强：
 
-- 可配置保护比例
-- 更强的前端交互与视觉演示
-- 更真实的资金模型
+- GMX / 真实永续协议接入
+- 更真实的价格源与健康度模型
+- 完整自动恢复 / 买回路径

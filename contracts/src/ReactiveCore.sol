@@ -48,6 +48,8 @@ interface ICallbackTarget {
         address rvmId,
         bytes32 strategyId,
         uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice,
         uint8 action
     ) external;
 }

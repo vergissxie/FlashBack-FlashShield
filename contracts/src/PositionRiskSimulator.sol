@@ -17,14 +17,27 @@ contract PositionRiskSimulator {
         uint256 entryPrice;
         uint256 markPrice;
         uint256 liquidationThreshold;
+        uint256 collateralValue;
+        uint256 targetPrice;
         PositionStatus status;
     }
 
     mapping(bytes32 => Position) private _positions;
 
-    event PositionOpened(bytes32 indexed strategyId, uint256 entryPrice, uint256 liquidationThreshold);
+    event PositionOpened(
+        bytes32 indexed strategyId,
+        uint256 entryPrice,
+        uint256 liquidationThreshold,
+        uint256 collateralValue,
+        uint256 targetPrice
+    );
     event MarkPriceUpdated(bytes32 indexed strategyId, uint256 markPrice);
-    event NearLiquidation(bytes32 indexed strategyId, uint256 triggerPrice);
+    event NearLiquidation(
+        bytes32 indexed strategyId,
+        uint256 triggerPrice,
+        uint256 collateralValue,
+        uint256 targetPrice
+    );
     event LiquidationTriggered(bytes32 indexed strategyId, uint256 triggerPrice);
 
     error InvalidPrice();
@@ -39,21 +52,27 @@ contract PositionRiskSimulator {
     function openPosition(
         bytes32 strategyId,
         uint256 entryPrice,
-        uint256 liquidationThreshold
+        uint256 liquidationThreshold,
+        uint256 collateralValue,
+        uint256 targetPrice
     ) external {
         if (strategyId == bytes32(0)) revert PositionNotFound(strategyId);
         if (entryPrice == 0) revert InvalidPrice();
         if (liquidationThreshold == 0 || liquidationThreshold >= entryPrice) revert InvalidThreshold();
+        if (collateralValue == 0) revert InvalidPrice();
+        if (targetPrice == 0 || targetPrice >= liquidationThreshold) revert InvalidThreshold();
         if (_positions[strategyId].entryPrice != 0) revert PositionAlreadyExists(strategyId);
 
         _positions[strategyId] = Position({
             entryPrice: entryPrice,
             markPrice: entryPrice,
             liquidationThreshold: liquidationThreshold,
+            collateralValue: collateralValue,
+            targetPrice: targetPrice,
             status: PositionStatus.Open
         });
 
-        emit PositionOpened(strategyId, entryPrice, liquidationThreshold);
+        emit PositionOpened(strategyId, entryPrice, liquidationThreshold, collateralValue, targetPrice);
     }
 
     /// @notice Updates the mark price and emits the appropriate risk event if the state changes.
@@ -83,7 +102,7 @@ contract PositionRiskSimulator {
         if (markPrice <= nearLiquidationThreshold) {
             if (position.status != PositionStatus.NearLiquidation) {
                 position.status = PositionStatus.NearLiquidation;
-                emit NearLiquidation(strategyId, markPrice);
+                emit NearLiquidation(strategyId, markPrice, position.collateralValue, position.targetPrice);
             }
             return;
         }
@@ -101,11 +120,20 @@ contract PositionRiskSimulator {
             uint256 entryPrice,
             uint256 markPrice,
             uint256 liquidationThreshold,
+            uint256 collateralValue,
+            uint256 targetPrice,
             PositionStatus status
         )
     {
         Position storage position = _positionOrRevert(strategyId);
-        return (position.entryPrice, position.markPrice, position.liquidationThreshold, position.status);
+        return (
+            position.entryPrice,
+            position.markPrice,
+            position.liquidationThreshold,
+            position.collateralValue,
+            position.targetPrice,
+            position.status
+        );
     }
 
     function _positionOrRevert(bytes32 strategyId) internal view returns (Position storage position) {

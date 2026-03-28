@@ -110,6 +110,8 @@ export async function GET(request: Request) {
       entryPrice: string;
       markPrice: string;
       liquidationThreshold: string;
+      collateralValue: string;
+      targetPrice: string;
       status: number;
       stage: "Safe" | "Watch" | "NearLiquidation" | "Triggered";
       note: string;
@@ -117,15 +119,16 @@ export async function GET(request: Request) {
     } = null;
 
     try {
-      const [entryPrice, markPrice, liquidationThreshold, positionStatus] = (await simulator.getPosition(
-        strategyId
-      )) as [bigint, bigint, bigint, bigint];
+      const [entryPrice, markPrice, liquidationThreshold, collateralValue, targetPrice, positionStatus] =
+        (await simulator.getPosition(strategyId)) as [bigint, bigint, bigint, bigint, bigint, bigint];
 
       const timelineState = summarizeTimeline(markPrice, liquidationThreshold, Number(positionStatus));
       positionPayload = {
         entryPrice: entryPrice.toString(),
         markPrice: markPrice.toString(),
         liquidationThreshold: liquidationThreshold.toString(),
+        collateralValue: collateralValue.toString(),
+        targetPrice: targetPrice.toString(),
         status: Number(positionStatus),
         stage: timelineState.stage,
         note: timelineState.note,
@@ -137,8 +140,8 @@ export async function GET(request: Request) {
       }
     }
 
-    const [riskBalance, stableBalance, amountProtected, currentStatus, lastStrategyId, triggerPrice, action] =
-      (await executor.getProtectionState()) as [bigint, bigint, bigint, bigint, string, bigint, bigint];
+    const [hedgeSize, collateralValue, triggerPrice, targetPrice, contractMultiplier, currentStatus, lastStrategyId, direction, action] =
+      (await executor.getProtectionState()) as [bigint, bigint, bigint, bigint, bigint, bigint, string, bigint, bigint];
 
     const decodedLastStrategyId = decodeStrategyId(lastStrategyId);
     const appliesToRequestedStrategy =
@@ -150,12 +153,14 @@ export async function GET(request: Request) {
       position: positionPayload,
       protection: {
         appliesToRequestedStrategy,
-        riskBalance: riskBalance.toString(),
-        stableBalance: stableBalance.toString(),
-        amountProtected: amountProtected.toString(),
+        hedgeSize: hedgeSize.toString(),
+        collateralValue: collateralValue.toString(),
+        triggerPrice: triggerPrice.toString(),
+        targetPrice: targetPrice.toString(),
+        contractMultiplier: contractMultiplier.toString(),
         currentStatus: Number(currentStatus),
         strategyId: decodedLastStrategyId,
-        triggerPrice: triggerPrice.toString(),
+        direction: Number(direction),
         action: Number(action),
       },
       callback: {

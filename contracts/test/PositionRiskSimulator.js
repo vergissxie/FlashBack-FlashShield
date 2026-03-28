@@ -13,14 +13,16 @@ describe("PositionRiskSimulator", function () {
     const simulator = await deploySimulator();
     const strategyId = ethers.encodeBytes32String("demo");
 
-    await expect(simulator.openPosition(strategyId, 100_000n, 85_000n))
+    await expect(simulator.openPosition(strategyId, 100_000n, 85_000n, 1_000_000n, 80_000n))
       .to.emit(simulator, "PositionOpened")
-      .withArgs(strategyId, 100_000n, 85_000n);
+      .withArgs(strategyId, 100_000n, 85_000n, 1_000_000n, 80_000n);
 
     const position = await simulator.getPosition(strategyId);
     expect(position.entryPrice).to.equal(100_000n);
     expect(position.markPrice).to.equal(100_000n);
     expect(position.liquidationThreshold).to.equal(85_000n);
+    expect(position.collateralValue).to.equal(1_000_000n);
+    expect(position.targetPrice).to.equal(80_000n);
     expect(BigInt(position.status)).to.equal(0n);
   });
 
@@ -28,11 +30,11 @@ describe("PositionRiskSimulator", function () {
     const simulator = await deploySimulator();
     const strategyId = ethers.encodeBytes32String("demo");
 
-    await simulator.openPosition(strategyId, 100_000n, 85_000n);
+    await simulator.openPosition(strategyId, 100_000n, 85_000n, 1_000_000n, 80_000n);
 
     await expect(simulator.updateMarkPrice(strategyId, 92_000n))
       .to.emit(simulator, "NearLiquidation")
-      .withArgs(strategyId, 92_000n);
+      .withArgs(strategyId, 92_000n, 1_000_000n, 80_000n);
 
     const position = await simulator.getPosition(strategyId);
     expect(position.markPrice).to.equal(92_000n);
@@ -43,7 +45,7 @@ describe("PositionRiskSimulator", function () {
     const simulator = await deploySimulator();
     const strategyId = ethers.encodeBytes32String("demo");
 
-    await simulator.openPosition(strategyId, 100_000n, 85_000n);
+    await simulator.openPosition(strategyId, 100_000n, 85_000n, 1_000_000n, 80_000n);
 
     await expect(simulator.updateMarkPrice(strategyId, 84_000n))
       .to.emit(simulator, "LiquidationTriggered")
@@ -58,7 +60,7 @@ describe("PositionRiskSimulator", function () {
     const simulator = await deploySimulator();
     const strategyId = ethers.encodeBytes32String("demo");
 
-    await simulator.openPosition(strategyId, 100_000n, 85_000n);
+    await simulator.openPosition(strategyId, 100_000n, 85_000n, 1_000_000n, 80_000n);
     await simulator.updateMarkPrice(strategyId, 84_000n);
     await simulator.updateMarkPrice(strategyId, 95_000n);
 
@@ -73,5 +75,13 @@ describe("PositionRiskSimulator", function () {
     await expect(simulator.updateMarkPrice(ethers.encodeBytes32String("missing"), 90_000n))
       .to.be.revertedWithCustomError(simulator, "PositionNotFound")
       .withArgs(ethers.encodeBytes32String("missing"));
+  });
+
+  it("reverts when target price is not below the liquidation threshold", async function () {
+    const simulator = await deploySimulator();
+    const strategyId = ethers.encodeBytes32String("demo");
+
+    await expect(simulator.openPosition(strategyId, 100_000n, 85_000n, 1_000_000n, 85_000n))
+      .to.be.revertedWithCustomError(simulator, "InvalidThreshold");
   });
 });
