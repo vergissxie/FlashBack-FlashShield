@@ -7,5 +7,7 @@ coverage/
 .env
 .env.*
 !.env.example
+docs/项目逻辑说明-内部.md
+docs/项目逻辑说明-目前.md
 out/
 typechain-types/
