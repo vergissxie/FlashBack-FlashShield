@@ -92,4 +92,26 @@ describe("ProtectionExecutor", function () {
     )
       .to.be.revertedWithCustomError(executor, "AlreadyProtected");
   });
+
+  it("resets demo balances when a new strategy triggers after an earlier protected run", async function () {
+    const { proxy, executor } = await deployFixture();
+    const target = await executor.getAddress();
+    const rvmId = await executor.expectedRvmId();
+
+    await proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-1"), 84n, 1);
+
+    await expect(
+      proxy.forwardReactiveCallback(target, rvmId, ethers.encodeBytes32String("strategy-2"), 82n, 1)
+    )
+      .to.emit(executor, "ProtectionStateReset")
+      .withArgs(ethers.encodeBytes32String("strategy-1"));
+
+    const state = await executor.getProtectionState();
+    expect(state.riskBalance).to.equal(200n);
+    expect(state.stableBalance).to.equal(800n);
+    expect(state.amountProtected).to.equal(800n);
+    expect(state.currentStatus).to.equal(1n);
+    expect(state.strategyId).to.equal(ethers.encodeBytes32String("strategy-2"));
+    expect(state.triggerPrice).to.equal(82n);
+  });
 });

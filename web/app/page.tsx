@@ -1,6 +1,5 @@
-import { DemoDashboard } from "@/components/demo-dashboard";
-import { demoSnapshot } from "@/lib/demo-data";
+import { LiveDemoDashboard } from "@/components/live-demo-dashboard";
 
 export default function HomePage() {
-  return <DemoDashboard snapshot={demoSnapshot} />;
+  return <LiveDemoDashboard />;
 }

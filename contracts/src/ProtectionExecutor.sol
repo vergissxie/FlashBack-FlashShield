@@ -29,6 +29,8 @@ contract ProtectionExecutor {
 
     address public immutable authorizedCallbackProxy;
     address public immutable expectedRvmId;
+    uint256 public immutable initialRiskTokenBalance;
+    uint256 public immutable initialStableTokenBalance;
     mapping(address => bool) private _authorizedSenders;
 
     uint256 public riskTokenBalance;
@@ -40,6 +42,7 @@ contract ProtectionExecutor {
     ProtectionStatus public status;
 
     event CallbackValidated(address indexed callbackProxy, address indexed rvmId, bytes32 indexed strategyId);
+    event ProtectionStateReset(bytes32 indexed previousStrategyId);
     event ProtectionExecuted(
         bytes32 indexed strategyId,
         uint256 triggerPrice,
@@ -65,6 +68,8 @@ contract ProtectionExecutor {
 
         authorizedCallbackProxy = _authorizedCallbackProxy;
         expectedRvmId = _expectedRvmId;
+        initialRiskTokenBalance = _initialRiskBalance;
+        initialStableTokenBalance = _initialStableBalance;
         riskTokenBalance = _initialRiskBalance;
         stableTokenBalance = _initialStableBalance;
         status = ProtectionStatus.Idle;
@@ -141,7 +146,12 @@ contract ProtectionExecutor {
 
     function _executeProtection(bytes32 strategyId, uint256 triggerPrice, uint8 action) internal {
         if (status == ProtectionStatus.Protected) {
-            revert AlreadyProtected();
+            if (lastStrategyId == strategyId) {
+                revert AlreadyProtected();
+            }
+
+            emit ProtectionStateReset(lastStrategyId);
+            _resetToInitialBalances();
         }
         if (riskTokenBalance == 0) {
             revert NoRiskBalance();
@@ -167,6 +177,15 @@ contract ProtectionExecutor {
             riskTokenBalance,
             stableTokenBalance
         );
+    }
+
+    function _resetToInitialBalances() internal {
+        riskTokenBalance = initialRiskTokenBalance;
+        stableTokenBalance = initialStableTokenBalance;
+        protectedAmount = 0;
+        lastAction = 0;
+        lastTriggerPrice = 0;
+        status = ProtectionStatus.Idle;
     }
 }
 

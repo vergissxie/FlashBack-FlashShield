@@ -2,14 +2,14 @@
   "contractName": "ReactiveProtection",
   "network": "reactiveLasna",
   "chainId": 5318007,
-  "address": "0xDad3db4E5F98aE6431173d5AF0f5Cf33aDAb495f",
-  "deploymentTxHash": "0x256dd087f1fdcfb799316c3f20e246ab3736c1de613872c28b1ebafb19810ee3",
+  "address": "0x808783123980c7315f1d370410A2664beEa6867E",
+  "deploymentTxHash": "0x6b5cf695619d5d5c187b840767ebac450697f86a6179dc74f830f20efc40ea85",
   "constructorArgs": [
     "11155111",
     "84532",
     "0x420dA053ECAC3FA636c5250A5735156bE51F2119",
     "0xa2dbef0729ae4cc6f7fa71a574ffbfc15bfe8459ba250436132652684d19fc23",
-    "0x2F1e7B4BBEf1797f8E81fead4ef7913Ba2D23A9d",
+    "0x980CFa7e8d3774DD2474d58b19733Cbf25C08663",
     "0.1"
   ]
 }
