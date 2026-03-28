@@ -231,6 +231,24 @@ button {
   margin-top: 18px;
 }
 
+.instruction-box {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.instruction-box p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.instruction-box p + p {
+  margin-top: 8px;
+}
+
 .field {
   display: grid;
   gap: 8px;

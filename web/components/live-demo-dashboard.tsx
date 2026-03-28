@@ -508,6 +508,18 @@ export function LiveDemoDashboard() {
           </button>
         </div>
 
+        <div className="instruction-box">
+          <p>
+            第 1 步：点击“开启演示仓位”，钱包会要求你签名一次，用于在 A 链创建演示仓位。
+          </p>
+          <p>
+            第 2 步：点击“触发接近清算”，钱包会再次要求你签名一次，用于在 A 链发出风险事件。
+          </p>
+          <p>
+            第 3 步：从这一刻开始不再需要你签名。Reactive 会自动监听 A 链事件，并在 B 链执行保护动作。
+          </p>
+        </div>
+
         <div className="control-grid">
           <label className="field">
             <span>策略 ID</span>
