@@ -132,7 +132,6 @@ export function LiveDemoDashboard() {
   const [feedback, setFeedback] = useState("先连接钱包，然后点击“1. 开启演示仓位”。");
   const [busyAction, setBusyAction] = useState<"connect" | "open" | "trigger" | "refresh" | null>(null);
   const [isAnimatingPrice, setIsAnimatingPrice] = useState(false);
-  const pollTimerRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   const strategyIdBytes = useMemo(() => ethers.encodeBytes32String(strategyId), [strategyId]);
@@ -141,9 +140,6 @@ export function LiveDemoDashboard() {
     void hydrateWallet();
 
     return () => {
-      if (pollTimerRef.current !== null) {
-        window.clearTimeout(pollTimerRef.current);
-      }
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
       }
@@ -159,7 +155,7 @@ export function LiveDemoDashboard() {
   async function refreshState(targetStrategyId: string) {
     if (!targetStrategyId.trim()) {
       setFeedback("请先填写策略 ID。");
-      return;
+      return null;
     }
 
     setBusyAction((current) => current ?? "refresh");
@@ -176,12 +172,31 @@ export function LiveDemoDashboard() {
       } else {
         setFeedback(nextState.message || "读取链上实时状态失败。");
       }
+      return nextState;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setFeedback(`刷新状态失败：${message}`);
+      return null;
     } finally {
       setBusyAction((current) => (current === "refresh" ? null : current));
     }
+  }
+
+  async function pollForProtection(targetStrategyId: string) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const nextState = await fetchDemoState(targetStrategyId);
+      setDemoState(nextState);
+
+      if (nextState.protection.appliesToRequestedStrategy) {
+        setFeedback(`Reactive 回调已完成，${targetStrategyId} 已在 B 链执行保护。`);
+        return;
+      }
+
+      setFeedback(`正在等待 Reactive 回调落到 B 链... 第 ${attempt + 1} 次查询`);
+      await new Promise((resolve) => window.setTimeout(resolve, 4000));
+    }
+
+    setFeedback("A 链事件已触发，但 B 链结果尚未显示。你可以稍后手动点一次“刷新状态”。");
   }
 
   async function hydrateWallet() {
@@ -289,16 +304,6 @@ export function LiveDemoDashboard() {
     return task(contract);
   }
 
-  function scheduleFollowUpRefresh() {
-    if (pollTimerRef.current !== null) {
-      window.clearTimeout(pollTimerRef.current);
-    }
-
-    pollTimerRef.current = window.setTimeout(() => {
-      void refreshState(strategyId);
-    }, 15000);
-  }
-
   async function animatePriceDrop(targetPrice: number, durationMs: number) {
     const startPrice = Number(displayMarkPrice || demoState?.position?.markPrice || entryPrice || 100);
     const safeTargetPrice = Number.isFinite(targetPrice) ? targetPrice : startPrice;
@@ -363,9 +368,9 @@ export function LiveDemoDashboard() {
 
       await Promise.all([tx.wait(), animatePriceDrop(Number(markPrice), 2200)]);
 
-      setFeedback(`A 链已提交风险事件，正在等待 Reactive 回调。交易哈希：${tx.hash}`);
+      setFeedback(`A 链已提交风险事件，正在自动轮询 B 链结果。交易哈希：${tx.hash}`);
       await refreshState(strategyId);
-      scheduleFollowUpRefresh();
+      await pollForProtection(strategyId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setFeedback(`触发失败：${message}`);
@@ -521,7 +526,9 @@ export function LiveDemoDashboard() {
                   <div>
                     <strong>{strategyId}</strong>
                     <p>
-                      {isAnimatingPrice ? "你已经签名发起本次动作，页面正在播放价格滑落，动画结束后展示链上结果。" : demoState.position.note}
+                      {isAnimatingPrice
+                        ? "你已经签名发起本次动作，页面正在播放价格滑落，随后自动轮询 B 链结果。"
+                        : demoState.position.note}
                     </p>
                   </div>
                   <span className={`badge badge-${demoState.position.stage.toLowerCase()}`}>
@@ -678,6 +685,9 @@ export function LiveDemoDashboard() {
                 <dd>{protectedAmount}</dd>
               </div>
             </dl>
+            <p className="result-note">
+              当前 P0 版本的 B 链策略参数固定为 80%。这里展示的是链上实际返回值，不是前端临时伪造数据。
+            </p>
             <div className="result-panel__rail">
               <span className="result-panel__fill result-panel__fill-emerald" />
             </div>

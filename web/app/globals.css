@@ -496,6 +496,12 @@ button {
   background: linear-gradient(90deg, rgba(15, 118, 110, 0.2), rgba(15, 118, 110, 0.92));
 }
 
+.result-note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .detail-card {
   padding: 16px;
   border-radius: 18px;
