@@ -40,6 +40,8 @@ type DemoState = {
     destinationChain: string;
     callbackProxy: string;
     rvmId: string;
+    triggerTxHash: string;
+    protectionTxHash: string;
   };
 };
 
@@ -48,6 +50,11 @@ type WalletState = {
   address: string;
   network: string;
   status: string;
+};
+
+type LocalTxState = {
+  openTxHash: string;
+  triggerTxHash: string;
 };
 
 type EthereumProvider = {
@@ -69,6 +76,30 @@ function shortAddress(value: string) {
   }
 
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function shortHash(value: string) {
+  if (!value) {
+    return "暂无";
+  }
+
+  return `${value.slice(0, 10)}...${value.slice(-8)}`;
+}
+
+function txExplorerUrl(chainId: number, hash: string) {
+  if (!hash) {
+    return "";
+  }
+
+  if (chainId === 11155111) {
+    return `https://sepolia.etherscan.io/tx/${hash}`;
+  }
+
+  if (chainId === 84532) {
+    return `https://sepolia.basescan.org/tx/${hash}`;
+  }
+
+  return "";
 }
 
 function positionStageLabel(status: number) {
@@ -169,6 +200,10 @@ export function LiveDemoDashboard() {
   const [feedback, setFeedback] = useState("先连接钱包，然后点击“1. 开启演示仓位”。");
   const [busyAction, setBusyAction] = useState<"connect" | "open" | "trigger" | "refresh" | null>(null);
   const [isAnimatingPrice, setIsAnimatingPrice] = useState(false);
+  const [localTxs, setLocalTxs] = useState<LocalTxState>({
+    openTxHash: "",
+    triggerTxHash: "",
+  });
   const animationFrameRef = useRef<number | null>(null);
 
   const strategyIdBytes = useMemo(() => ethers.encodeBytes32String(strategyId), [strategyId]);
@@ -412,6 +447,10 @@ export function LiveDemoDashboard() {
         return tx.wait();
       });
 
+      setLocalTxs((current) => ({
+        ...current,
+        openTxHash: receipt.hash,
+      }));
       setDisplayMarkPrice(entryPrice);
       setFeedback(`已完成开仓，A 链交易哈希：${receipt.hash}`);
       await refreshState(strategyId);
@@ -437,6 +476,10 @@ export function LiveDemoDashboard() {
 
       await Promise.all([tx.wait(), animatePriceDrop(Number(markPrice), 2200)]);
 
+      setLocalTxs((current) => ({
+        ...current,
+        triggerTxHash: tx.hash,
+      }));
       setFeedback(`A 链已提交风险事件，正在自动轮询 B 链结果。交易哈希：${tx.hash}`);
       await refreshState(strategyId);
       await pollForProtection(strategyId);
@@ -456,6 +499,8 @@ export function LiveDemoDashboard() {
   const hedgeTargetDisplay = appliesToCurrentStrategy ? `$${demoState?.protection.targetPrice}` : "未触发";
   const hedgeTriggerDisplay = appliesToCurrentStrategy ? `$${demoState?.protection.triggerPrice}` : "未触发";
   const hedgeDirectionDisplay = appliesToCurrentStrategy ? hedgeDirectionLabel(demoState?.protection.direction ?? 0) : "未触发";
+  const triggerTxHash = demoState?.callback.triggerTxHash || localTxs.triggerTxHash;
+  const protectionTxHash = demoState?.callback.protectionTxHash || "";
 
   return (
     <main className="shell">
@@ -713,6 +758,38 @@ export function LiveDemoDashboard() {
                   <dt>对冲规模</dt>
                   <dd>{appliesToCurrentStrategy ? demoState.protection.hedgeSize : "当前策略尚未触发"}</dd>
                 </div>
+                <div>
+                  <dt>A 链触发哈希</dt>
+                  <dd>
+                    {triggerTxHash ? (
+                      <a
+                        href={txExplorerUrl(contractConfig.originChainId, triggerTxHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {shortHash(triggerTxHash)}
+                      </a>
+                    ) : (
+                      "当前策略尚未触发"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>B 链执行哈希</dt>
+                  <dd>
+                    {protectionTxHash ? (
+                      <a
+                        href={txExplorerUrl(contractConfig.destinationChainId, protectionTxHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {shortHash(protectionTxHash)}
+                      </a>
+                    ) : (
+                      "当前策略尚未回调"
+                    )}
+                  </dd>
+                </div>
               </dl>
 
               <div className="flow">
@@ -796,6 +873,9 @@ export function LiveDemoDashboard() {
             </dl>
             <p className="result-note">
               当前增强版不再固定展示 80% 切仓，而是根据链上保存的抵押价值、触发价、目标价和合约乘数计算 mock short 规模。
+              {!appliesToCurrentStrategy && demoState?.protection.strategyId
+                ? ` 当前页面策略是 ${strategyId}，但 B 链最近一次成功策略是 ${demoState.protection.strategyId}，所以这里暂时显示未触发。`
+                : ""}
             </p>
             <div className="result-panel__rail">
               <span className="result-panel__fill result-panel__fill-emerald" />

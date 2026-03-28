@@ -40,6 +40,24 @@ function decodeStrategyId(encoded: string) {
   }
 }
 
+async function findLatestStrategyEventTxHash(
+  provider: ethers.JsonRpcProvider,
+  address: string,
+  eventSignature: string,
+  strategyId: string
+) {
+  const latestBlock = await provider.getBlockNumber();
+  const fromBlock = latestBlock > 5_000 ? latestBlock - 5_000 : 0;
+  const logs = await provider.getLogs({
+    address,
+    fromBlock,
+    toBlock: latestBlock,
+    topics: [ethers.id(eventSignature), strategyId],
+  });
+
+  return logs.length > 0 ? logs.at(-1)?.transactionHash ?? "" : "";
+}
+
 function summarizeTimeline(markPrice: bigint, liquidationThreshold: bigint, positionStatus: number) {
   const nearThreshold = (liquidationThreshold * 11_000n) / 10_000n;
   const ratio = Number((markPrice * 100n) / (nearThreshold === 0n ? 1n : nearThreshold));
@@ -146,6 +164,20 @@ export async function GET(request: Request) {
     const decodedLastStrategyId = decodeStrategyId(lastStrategyId);
     const appliesToRequestedStrategy =
       decodedLastStrategyId === strategyIdText && Number(currentStatus) === 1;
+    const triggerTxHash = await findLatestStrategyEventTxHash(
+      originProvider,
+      contractConfig.positionRiskSimulatorAddress,
+      "NearLiquidation(bytes32,uint256,uint256,uint256)",
+      strategyId
+    );
+    const protectionTxHash = appliesToRequestedStrategy
+      ? await findLatestStrategyEventTxHash(
+          destinationProvider,
+          contractConfig.protectionExecutorAddress,
+          "ShortPositionOpened(bytes32,uint256,uint256,uint256,uint256,uint256)",
+          strategyId
+        )
+      : "";
 
     return NextResponse.json({
       ok: true,
@@ -168,6 +200,8 @@ export async function GET(request: Request) {
         destinationChain: `Base Sepolia (${contractConfig.destinationChainId})`,
         callbackProxy: env.REACTIVE_CALLBACK_PROXY,
         rvmId: env.EXPECTED_RVM_ID,
+        triggerTxHash,
+        protectionTxHash,
       },
     });
   } catch (error) {
